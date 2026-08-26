@@ -1,0 +1,51 @@
+name: Release skill
+
+# webfilebin-file-ops/ が更新されたら .skill（ZIP）を作り直し、
+# 常に同じURLで取得できるよう "latest" リリースへ貼り替える。
+#   https://github.com/hayashiroto/webfilebin-skills/releases/latest/download/webfilebin-file-ops.skill
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'webfilebin-file-ops/**'
+      - '.github/workflows/release-skill.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-skill
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package skill
+        # -X: 拡張属性を含めない / -r: 再帰
+        run: zip -X -r webfilebin-file-ops.skill webfilebin-file-ops
+
+      - name: Verify archive layout
+        run: |
+          unzip -l webfilebin-file-ops.skill
+          unzip -p webfilebin-file-ops.skill webfilebin-file-ops/SKILL.md > /dev/null
+
+      - name: Publish as the "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # タグを現在のコミットへ進めたいので、いったん消してから作り直す
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            --title "webfilebin-file-ops (latest)" \
+            --notes "\`main\` の最新内容をパッケージしたスキルです。導入手順は [README](https://github.com/hayashiroto/webfilebin-skills#readme) を参照してください。" \
+            webfilebin-file-ops.skill
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webfilebin-file-ops-skill
+          path: webfilebin-file-ops.skill
