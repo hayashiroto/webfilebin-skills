@@ -19,8 +19,10 @@
 | --- | --- | --- | --- |
 | `whoami` | `GET /v1/me` | なし（有効なトークン） | 所有ユーザー・プラン・スコープの確認 |
 | `list [--limit N] [--next TOKEN]` | `GET /v1/files` | `webfilebin/list` | `limit` は 1〜100（既定 20） |
-| `upload <path> [--name] [--overwrite]` | `POST /v1/files` | `webfilebin/upload` | 拡張子で HTML/画像経路に自動振り分け |
-| `upload-folder <dir> [--name] [--overwrite]` | `POST /v1/folders` | `webfilebin/upload` | 直下に `index.html` が必須 |
+| `upload <path> [--name] [--overwrite] [--password]` | `POST /v1/files` | `webfilebin/upload` | 拡張子で HTML/画像経路に自動振り分け。`--password` で保護 |
+| `upload-folder <dir> [--name] [--overwrite]` | `POST /v1/folders` | `webfilebin/upload` | 直下に `index.html` が必須。パスワードは不可 |
+| `protect <name> --password` | `PATCH /v1/files/{name}` | `webfilebin/upload` | あとからパスワードをかける / 差し替える |
+| `unprotect <name>` | `PATCH /v1/files/{name}` | `webfilebin/upload` | パスワードを外して公開に戻す |
 | `delete <name>` | `DELETE /v1/files/{name}` | `webfilebin/delete` | ファイル名 / フォルダ名で指定 |
 | `clear-token` | — | — | ローカルのトークンキャッシュを破棄 |
 
@@ -28,7 +30,7 @@
 
 | スコープ | 許可される操作 |
 | --- | --- |
-| `webfilebin/upload` | `POST /v1/files`, `POST /v1/folders` |
+| `webfilebin/upload` | `POST /v1/files`, `POST /v1/folders`, `PATCH /v1/files/{name}` |
 | `webfilebin/delete` | `DELETE /v1/files/{name}` |
 | `webfilebin/list` | `GET /v1/files` |
 
@@ -75,7 +77,8 @@ curl -sS "$WFB_API_BASE/v1/files?limit=50" -H "Authorization: Bearer $TOKEN"
       "createdAt": "2026-08-26T00:00:00.000Z",
       "expiredAt": "none",
       "accessCount": 12,
-      "primaryFile": null
+      "primaryFile": null,
+      "accessMode": "public"
     }
   ],
   "nextToken": null
@@ -91,11 +94,15 @@ curl -sS "$WFB_API_BASE/v1/files?limit=50" -H "Authorization: Bearer $TOKEN"
   "fileName": "report.html",
   "encoding": "text",
   "content": "<!doctype html>...",
-  "overwrite": false
+  "overwrite": false,
+  "accessMode": "password",
+  "password": "shared-secret"
 }
 ```
 
 - `encoding`: `text`（HTML）または `base64`（画像・動画）。省略時は拡張子から推定。
+- `accessMode`: `public` または `password`。省略時は新規なら公開、再アップロードなら既存の公開方法を維持。
+- `password`: `accessMode` が `password` のとき必須。6文字以上。サーバーはハッシュだけ保存する。
 - 対応拡張子: `.html`, `.htm`, `.jpg`, `.jpeg`, `.png`, `.mp4`。それ以外は `400 unsupported_file_type`。
 - `fileName` にパス区切り文字は使えない。フォルダは `POST /v1/folders` を使う。
 
@@ -112,7 +119,27 @@ curl -sS "$WFB_API_BASE/v1/files?limit=50" -H "Authorization: Bearer $TOKEN"
 }
 ```
 
-`content` は常に base64。`path` は `/` 区切りの相対パス。`overwrite: true` は既存フォルダを削除してから書き込む。
+`content` は常に base64。`path` は `/` 区切りの相対パス。`overwrite: true` は既存フォルダを削除してから書き込む。フォルダにはパスワードを設定できない。
+
+### パスワード保護
+
+```bash
+curl -sS -X PATCH "$WFB_API_BASE/v1/files/report.html" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"accessMode":"password","password":"shared-secret"}'
+```
+
+```json
+{
+  "fileName": "report.html",
+  "itemType": "file",
+  "accessMode": "password",
+  "message": "更新成功"
+}
+```
+
+解除は `{"accessMode":"public"}`。URL は変わらず、開くとパスワード入力画面になる。フォルダ名を指定して保護しようとすると `400`。
 
 ### 削除
 
