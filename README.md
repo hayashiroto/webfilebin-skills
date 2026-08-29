@@ -1,7 +1,7 @@
 # WebFileBin Skills
 
 [WebFileBin](https://webfilebin.com) を AI エージェントから操作するための公式スキル配布リポジトリです。
-現在配布しているのは **`webfilebin-file-ops`**（アップロード / 削除 / 一覧）の1本です。
+現在配布しているのは **`webfilebin-file-ops`**（アップロード / 削除 / 一覧 / パスワード保護）の1本です。
 
 - 対象: WebFileBin の **Pro プラン**ユーザー
 - 動作要件: **Node.js 20 以上**（組み込み `fetch` を使うため）
@@ -16,8 +16,10 @@ Claude Code や Cursor などのエージェントに入れておくと、ブラ
 | 依頼の例 | 実行されるコマンド |
 | --- | --- |
 | 「このHTMLを公開して」 | `upload` |
-| 「この dist フォルダをまるごと公開して」 | `upload-folder` |
+| 「パスワード付きで共有して」 | `upload --password` または `protect` |
+| 「この dist フォルダをまるごと公開して」 | `upload-folder`（フォルダにはパスワード不可） |
 | 「いま公開してるファイルを一覧して」 | `list` |
+| 「パスワードを外して」 | `unprotect` |
 | 「あのページはもう消して」 | `delete` |
 
 公開されたファイルには即座に共有URLが発行され、エージェントがそのURLをそのまま返してくれます。
@@ -73,7 +75,7 @@ export WFB_CLIENT_SECRET="wfb_cs_xxxxxxxxxxxxxxxxxxxx"
 
 | スコープ | 許可される操作 | 対応コマンド |
 | --- | --- | --- |
-| `webfilebin/upload` | ファイル・フォルダのアップロード | `upload` / `upload-folder` |
+| `webfilebin/upload` | ファイル・フォルダのアップロードと、あとからのパスワード設定 | `upload` / `upload-folder` / `protect` / `unprotect` |
 | `webfilebin/delete` | 公開済みアイテムの削除 | `delete` |
 | `webfilebin/list` | 公開中アイテムの一覧取得 | `list` |
 
@@ -158,11 +160,18 @@ node scripts/wfb.mjs list --limit 50
 # 単一ファイルをアップロード
 node scripts/wfb.mjs upload ./report.html --name report.html
 
+# パスワード付きで公開（URLは同じ。知っている人だけが見られる）
+node scripts/wfb.mjs upload ./report.html --password 'shared-secret'
+
 # 同じ名前で差し替え
 node scripts/wfb.mjs upload ./report.html --overwrite
 
 # フォルダを一括アップロード（直下に index.html が必須）
 node scripts/wfb.mjs upload-folder ./dist --name my-site
+
+# あとからパスワードをかける / 外す
+node scripts/wfb.mjs protect report.html --password 'shared-secret'
+node scripts/wfb.mjs unprotect report.html
 
 # 削除（ファイル名 / フォルダ名で指定）
 node scripts/wfb.mjs delete report.html
@@ -175,13 +184,16 @@ node scripts/wfb.mjs clear-token
 | --- | --- | --- |
 | `whoami` | なし（有効なトークン） | 所有ユーザー・プラン・スコープを表示 |
 | `list [--limit N] [--next TOKEN]` | `webfilebin/list` | 公開中アイテムの一覧 |
-| `upload <path> [--name] [--overwrite]` | `webfilebin/upload` | 単一ファイルのアップロード |
-| `upload-folder <dir> [--name] [--overwrite]` | `webfilebin/upload` | フォルダの一括アップロード |
+| `upload <path> [--name] [--overwrite] [--password PASS \| --public]` | `webfilebin/upload` | 単一ファイルのアップロード。`--password` で保護 |
+| `upload-folder <dir> [--name] [--overwrite]` | `webfilebin/upload` | フォルダの一括アップロード。パスワードは不可 |
+| `protect <name> --password PASS` | `webfilebin/upload` | あとからパスワードをかける / 差し替える |
+| `unprotect <name>` | `webfilebin/upload` | パスワードを外して公開に戻す |
 | `delete <name>` | `webfilebin/delete` | ファイル / フォルダの削除 |
 | `clear-token` | — | ローカルのトークンキャッシュを破棄 |
 
 対応拡張子は `.html` / `.htm` / `.jpg` / `.jpeg` / `.png` / `.mp4` です。
 1リクエストの上限は 6MB（クライアント側で 5MB を超えると事前にエラーになります）。
+パスワードは `--password` の代わりに環境変数 `WFB_SITE_PASSWORD` でも渡せます。フォルダにはパスワードを設定できません。
 
 HTTP を直接叩きたい場合は [`webfilebin-file-ops/references/api-reference.md`](webfilebin-file-ops/references/api-reference.md) にエンドポイントとレスポンス例をまとめてあります。
 
@@ -208,6 +220,7 @@ HTTP を直接叩きたい場合は [`webfilebin-file-ops/references/api-referen
 - `client_secret` はサーバーにハッシュしか保存されません。漏れた疑いがあれば「AI連携」タブから即座に失効させてください。失効は次のリクエストから有効になります。
 - `wfb.mjs` はアクセストークンを一時ディレクトリ（`$TMPDIR/wfb-token-*.json`、パーミッション `600`）にキャッシュします。共有マシンで使う場合は作業後に `clear-token` を実行してください。
 - 資格情報は `Authorization: Basic` ヘッダで送られます。コマンド履歴やプロセス一覧に平文が残らない作りです。
+- サイトの閲覧パスワードはサーバーにハッシュしか保存されません。`--password` はシェル履歴に残るので、気になる場合は `WFB_SITE_PASSWORD` を使ってください。
 - 操作対象は常にトークンの所有ユーザー配下に限定されます。他ユーザーのファイルを指定しても `404` になります。
 
 ---

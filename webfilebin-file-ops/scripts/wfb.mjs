@@ -219,6 +219,7 @@ const commands = {
     assertRequestSize(raw.byteLength, fileName)
 
     const isText = TEXT_EXTENSIONS.has(ext)
+    const access = resolveAccessModeArgs(args)
     return await callApi(cfg, '/v1/files', {
       method: 'POST',
       body: {
@@ -226,6 +227,7 @@ const commands = {
         encoding: isText ? 'text' : 'base64',
         content: isText ? raw.toString('utf8') : raw.toString('base64'),
         overwrite: Boolean(args.overwrite),
+        ...access,
       },
     })
   },
@@ -261,6 +263,34 @@ const commands = {
     })
   },
 
+  async protect(cfg, args) {
+    const name = args._[0]
+    if (!name) {
+      throw new WfbError('パスワードをかけるファイル名を指定してください')
+    }
+    const password = resolvePassword(args)
+    if (!password) {
+      throw new WfbError('パスワードを指定してください', {
+        hint: '--password <値> または環境変数 WFB_SITE_PASSWORD を使ってください。',
+      })
+    }
+    return await callApi(cfg, `/v1/files/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: { accessMode: 'password', password },
+    })
+  },
+
+  async unprotect(cfg, args) {
+    const name = args._[0]
+    if (!name) {
+      throw new WfbError('パスワードを外すファイル名を指定してください')
+    }
+    return await callApi(cfg, `/v1/files/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: { accessMode: 'public' },
+    })
+  },
+
   async delete(cfg, args) {
     const name = args._[0]
     if (!name) {
@@ -278,6 +308,29 @@ const commands = {
     await writeFile(path, '{}', { mode: 0o600 })
     return { cleared: true, path }
   },
+}
+
+const resolvePassword = (args) => {
+  if (typeof args.password === 'string' && args.password.length > 0) {
+    return args.password
+  }
+  if (args.password === true) {
+    throw new WfbError('パスワードを指定してください', {
+      hint: '--password <値> または環境変数 WFB_SITE_PASSWORD を使ってください。',
+    })
+  }
+  const fromEnv = process.env.WFB_SITE_PASSWORD
+  return fromEnv || undefined
+}
+
+const resolveAccessModeArgs = (args) => {
+  const password = resolvePassword(args)
+  if (args.public && password) {
+    throw new WfbError('--public と --password は同時に指定できません')
+  }
+  if (args.public) return { accessMode: 'public' }
+  if (password) return { accessMode: 'password', password }
+  return {}
 }
 
 const parseArgs = (argv) => {
@@ -305,13 +358,17 @@ const usage = () => `使い方: node wfb.mjs <command> [options]
 コマンド:
   whoami                                    トークンの所有ユーザーと許可スコープを表示
   list [--limit N] [--next TOKEN]           自分のアップロード済みアイテムを一覧表示
-  upload <path> [--name NAME] [--overwrite] 単一ファイルをアップロード
+  upload <path> [--name NAME] [--overwrite] [--password PASS | --public]
+                                            単一ファイルをアップロード。--password で保護
   upload-folder <dir> [--name NAME] [--overwrite]
                                             フォルダを一括アップロード（index.html 必須）
+  protect <name> --password PASS            あとからパスワードをかける / 差し替える
+  unprotect <name>                          パスワードを外して公開に戻す
   delete <name>                             ファイル名またはフォルダ名で削除
   clear-token                               ローカルのトークンキャッシュを破棄
 
 必要な環境変数: WFB_API_BASE, WFB_CLIENT_ID, WFB_CLIENT_SECRET
+パスワードは --password の代わりに WFB_SITE_PASSWORD でも渡せます
 `
 
 const main = async () => {

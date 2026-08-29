@@ -1,12 +1,12 @@
 ---
 name: webfilebin-file-ops
-description: WebFileBin（webfilebin.com）へHTML/画像/フォルダをOAuth経由でアップロード・削除・一覧するワークフロー。「このHTMLを公開して」「公開中のファイルを一覧して」「あのページを消して」のようにWebFileBinの公開ファイルを操作したいときに使用する。Proプランの資格情報が必要。
+description: WebFileBin（webfilebin.com）へHTML/画像/フォルダをOAuth経由でアップロード・削除・一覧し、公開URLにパスワードをかけるワークフロー。「このHTMLを公開して」「パスワード付きで共有して」「公開中のファイルを一覧して」「あのページを消して」のようにWebFileBinの公開ファイルを操作したいときに使用する。Proプランの資格情報が必要。フォルダにはパスワードを設定できない。
 ---
 
 # WebFileBin File Ops
 
 ## 概要
-WebFileBin はHTML・画像・フォルダをアップロードすると即座に公開URLが発行される共有サービス。このスキルは Pro ユーザー向けのエージェント API（OAuth 2.0 client credentials）を使い、ブラウザを開かずに `upload` / `delete` / `list` を実行する。ユーザーから「この成果物を公開して」「公開URLを教えて」「もう使わないので消して」のような依頼を受けた場合、[scripts/wfb.mjs](scripts/wfb.mjs) を通して安全に操作する。
+WebFileBin はHTML・画像・フォルダをアップロードすると即座に公開URLが発行される共有サービス。このスキルは Pro ユーザー向けのエージェント API（OAuth 2.0 client credentials）を使い、ブラウザを開かずに `upload` / `delete` / `list` / `protect` を実行する。ユーザーから「この成果物を公開して」「パスワード付きで共有して」「公開URLを教えて」「もう使わないので消して」のような依頼を受けた場合、[scripts/wfb.mjs](scripts/wfb.mjs) を通して安全に操作する。
 
 ## クイックワークフロー
 1. `node scripts/wfb.mjs whoami` で資格情報とスコープを確認する。未設定なら下の「初回セットアップ」をユーザーに案内する。
@@ -34,9 +34,11 @@ export WFB_CLIENT_SECRET="wfb_cs_..."
 ## 入力解釈ガイド
 ### 操作の判定
 - 「公開して」「アップして」「共有URLをちょうだい」→ `upload`（単一ファイル）または `upload-folder`（`index.html` を含むディレクトリ）。
-- 「一覧」「何を公開してる？」「URLを教えて」→ `list`。
-- 「消して」「非公開にして」「もう不要」→ `delete`。必ず確認を取る。
-- 「差し替えて」「更新して」→ 同じ `fileName` で `upload --overwrite`。
+- 「パスワード付きで」「鍵をかけて」「知っている人だけに」→ 単一ファイルなら `upload --password` またはあとから `protect`。フォルダには設定できないので、その旨を伝える。
+- 「パスワードを外して」「公開に戻して」→ `unprotect`。
+- 「一覧」「何を公開してる？」「URLを教えて」→ `list`。`accessMode` が `password` なら保護中。
+- 「消して」「もう不要」→ `delete`。必ず確認を取る。「非公開にして」は削除ではなく `protect` の可能性があるので確認する。
+- 「差し替えて」「更新して」→ 同じ `fileName` で `upload --overwrite`。保護を維持したいだけなら `--password` は不要。外したいときだけ `--public`。
 
 ### 対象の決定
 - ファイル名が明示されない場合はローカルのファイル名をそのまま使う。`--name` で公開名を変えられる。
@@ -61,8 +63,15 @@ node scripts/wfb.mjs list --limit 50
 # 単一ファイル
 node scripts/wfb.mjs upload ./report.html --name report.html
 
+# パスワード付きで公開（URLは同じ。知っている人だけが見られる）
+node scripts/wfb.mjs upload ./report.html --password 'shared-secret'
+
 # 差し替え
 node scripts/wfb.mjs upload ./report.html --overwrite
+
+# あとからパスワードをかける / 外す
+node scripts/wfb.mjs protect report.html --password 'shared-secret'
+node scripts/wfb.mjs unprotect report.html
 
 # フォルダ（直下に index.html が必要）
 node scripts/wfb.mjs upload-folder ./dist --name my-site
@@ -72,13 +81,13 @@ node scripts/wfb.mjs delete report.html
 ```
 
 ### 3. 監視すべき出力
-- `upload` 成功時: `url`（公開URL）と `expiredAt`。Pro なら `expiredAt` は `none`（無期限）。
-- `list` 成功時: `items[].fileName` / `url` / `itemType`（`file` か `folder`）/ `accessCount`、続きがある場合は `nextToken`。
+- `upload` 成功時: `url`（公開URL）と `expiredAt`、`accessMode`。Pro なら `expiredAt` は `none`（無期限）。`accessMode` が `password` なら、URL を開くとパスワード入力画面になる。
+- `list` 成功時: `items[].fileName` / `url` / `itemType`（`file` か `folder`）/ `accessCount` / `accessMode`、続きがある場合は `nextToken`。
 - `delete` 成功時: `{ "deleted": true, "name": ..., "itemType": ... }`。
 - エラーは `エラー (HTTP nnn) [code]: メッセージ` 形式で stderr に出る。`ヒント:` 行があればそれに従う。
 
 ### 4. 完了確認・共有
-- アップロード後は `url` をそのままユーザーへ共有する。反映まで数秒かかることがあるので、すぐに 403/404 なら少し待って再確認する。
+- アップロード後は `url` をそのままユーザーへ共有する。`accessMode` が `password` なら、パスワードも一緒に伝える（サーバーには残っていないので、ここで渡さないと共有相手が開けない）。反映まで数秒かかることがあるので、すぐに 403/404 なら少し待って再確認する。
 - 複数ファイルを扱った場合は「名前 → URL」の対応表としてまとめて報告する。
 - 削除後は `list` で消えていることを確認してから完了を伝える。
 
