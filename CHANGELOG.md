@@ -5,6 +5,16 @@
 
 ## webfilebin-file-ops
 
+### 1.1.0 — 2026-08-30
+
+公開URLにパスワードをかけられるようにした。
+
+- `upload --password` でアップロードと同時に保護
+- `protect` / `unprotect` であとから設定・差し替え・解除
+- `list` の各アイテムに `accessMode`（`public` / `password`）を表示
+- フォルダにはパスワードを設定できない（配下のアセットが個別配信されるため）
+- パスワードは `--password` の代わりに `WFB_SITE_PASSWORD` でも渡せる
+
 ### 1.0.0 — 2026-08-26
 
 初回公開。
