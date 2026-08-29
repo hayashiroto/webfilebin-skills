@@ -388,7 +388,7 @@ const main = async () => {
   try {
     const result = await run(config(), parseArgs(rest))
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
-    } catch (error) {
+  } catch (error) {
     if (error instanceof WfbError) {
       const code = error.code ? ` [${error.code}]` : ''
       const status = error.status ? ` (HTTP ${error.status})` : ''
